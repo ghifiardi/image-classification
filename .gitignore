@@ -1,4 +1,9 @@
 __pycache__/
+*.py[cod]
+*$py.class
 venv/
+.env
 .DS_Store
-*.pt
+*.log
+yolo11l.pt
+yolo11n-cls.pt

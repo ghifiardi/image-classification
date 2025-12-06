@@ -38,12 +38,62 @@
             justify-content: center;
             align-items: center;
             overflow: hidden;
+            background: #111;
         }
 
-        .video-feed {
+        #video-preview {
             width: 100%;
             height: 100%;
             object-fit: cover;
+        }
+
+        .scanner-box {
+            position: absolute;
+            width: 250px;
+            height: 250px;
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            border-radius: 20px;
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+            pointer-events: none;
+        }
+
+        .scanner-box::before,
+        .scanner-box::after {
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border-color: #00ff00;
+            border-style: solid;
+            transition: all 0.2s;
+        }
+
+        .scanner-box::before {
+            top: -2px;
+            left: -2px;
+            border-width: 4px 0 0 4px;
+        }
+
+        .scanner-box::after {
+            bottom: -2px;
+            right: -2px;
+            border-width: 0 4px 4px 0;
+        }
+
+        .result-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -160px);
+            background: rgba(0, 255, 0, 0.9);
+            color: #000;
+            padding: 5px 15px;
+            border-radius: 5px;
+            font-weight: bold;
+            font-size: 18px;
+            display: none;
+            /* Hidden initially */
+            white-space: nowrap;
         }
 
         .overlay {
@@ -54,6 +104,7 @@
             background: linear-gradient(to top, rgba(0, 0, 0, 0.9), transparent);
             padding: 30px 20px;
             text-align: center;
+            z-index: 20;
         }
 
         .action-btn {
@@ -76,14 +127,11 @@
             transform: scale(0.95);
         }
 
-        .icon {
-            font-size: 20px;
-        }
-
-        .hint {
+        .predictions-list {
             margin-bottom: 20px;
-            color: #ccc;
             font-size: 14px;
+            color: #ccc;
+            min-height: 40px;
         }
     </style>
 </head>
@@ -94,20 +142,187 @@
     </div>
 
     <div class="scanner-container">
-        <img src="/video_feed" class="video-feed" alt="Scanner Feed">
+        <video id="video-preview" autoplay playsinline muted></video>
+        <div class="scanner-box"></div>
+        <div id="top-result" class="result-overlay">SCANNING...</div>
+        <canvas id="capture-canvas" style="display: none;"></canvas>
     </div>
 
     <div class="overlay">
-        <div class="hint">Point at an object to identify it</div>
-        <button class="action-btn" onclick="simulateSearch()">
-            <span class="icon">🔍</span> Shop Similar Items
-        </button>
+        <div id="predictions" class="predictions-list">Point at an object...</div>
+
+        <!-- Standard Mode Controls -->
+        <div id="standard-controls">
+            <button class="action-btn" onclick="toggleTeachMode()">
+                <span class="icon">🎓</span> Teach New Object
+            </button>
+            <button class="action-btn" onclick="simulateSearch()">
+                <span class="icon">🔍</span> Shop Similar
+            </button>
+        </div>
+
+        <!-- Teach Mode Controls (Hidden by default) -->
+        <div id="teach-controls" style="display: none; flex-direction: column; gap: 10px; align-items: center;">
+            <input type="text" id="object-label" placeholder="Enter Object Name (e.g. My Bag)"
+                style="padding: 10px; border-radius: 5px; border: none; width: 200px; text-align: center;">
+            <div style="display: flex; gap: 10px;">
+                <button class="action-btn" style="background: #00ff00;" onclick="learnObject()">
+                    <span class="icon">✅</span> Learn This
+                </button>
+                <button class="action-btn" style="background: #ff0000; color: white;" onclick="toggleTeachMode()">
+                    <span class="icon">❌</span> Cancel
+                </button>
+            </div>
+        </div>
     </div>
 
     <script>
-        function simulateSearch() {
-            alert("Simulating search for detected item...\n\n(In a real app, this would open a product results page!)");
+        const video = document.getElementById('video-preview');
+        const canvas = document.getElementById('capture-canvas');
+        const topResultEl = document.getElementById('top-result');
+        const predictionsEl = document.getElementById('predictions');
+        let isScanning = true;
+
+        // Toggle UI
+        function toggleTeachMode() {
+            const std = document.getElementById('standard-controls');
+            const teach = document.getElementById('teach-controls');
+            if (std.style.display === 'none') {
+                std.style.display = 'flex';
+                teach.style.display = 'none';
+                isScanning = true; // Resume scanning
+            } else {
+                std.style.display = 'none';
+                teach.style.display = 'flex';
+                // Keep scanning to show preview, but maybe pause updates? 
+                // Let's keep scanning so user sees what they are teaching.
+            }
         }
+
+        // Learn Object Logic
+        async function learnObject() {
+            const label = document.getElementById('object-label').value;
+            if (!label) {
+                alert("Please enter a name for the object!");
+                return;
+            }
+
+            // Capture current frame
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            canvas.toBlob(async (blob) => {
+                if (!blob) return;
+
+                const formData = new FormData();
+                formData.append('file', blob, 'learn.jpg');
+                formData.append('label', label);
+
+                try {
+                    topResultEl.innerText = "LEARNING...";
+                    const response = await fetch('/learn', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await response.json();
+
+                    if (data.status === 'success') {
+                        alert(`Success! I have learned "${label}".\n\nNow point at it again to test!`);
+                        toggleTeachMode();
+                        document.getElementById('object-label').value = ""; // Clear input
+                    } else {
+                        alert("Error: " + data.message);
+                    }
+                } catch (err) {
+                    console.error("Error learning:", err);
+                    alert("Failed to learn object.");
+                }
+            }, 'image/jpeg', 0.9);
+        }
+
+        // 1. Start Camera
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment', // Use back camera on phones
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                });
+                video.srcObject = stream;
+
+                // Start processing loop
+                setInterval(processFrame, 500); // Process every 500ms
+            } catch (err) {
+                console.error("Error accessing camera:", err);
+                alert("Could not access camera. Please allow camera permissions.");
+            }
+        }
+
+        // 2. Capture and Send Frame
+        async function processFrame() {
+            if (!isScanning) return;
+            // Don't update UI if in teach mode (optional, but let's keep it live)
+
+            // Draw video frame to canvas
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Convert to Blob (JPEG)
+            canvas.toBlob(async (blob) => {
+                if (!blob) return;
+
+                const formData = new FormData();
+                formData.append('file', blob, 'frame.jpg');
+
+                try {
+                    const response = await fetch('/classify_frame', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await response.json();
+
+                    if (data.status === 'success') {
+                        updateUI(data);
+                    }
+                } catch (err) {
+                    console.error("Error sending frame:", err);
+                }
+            }, 'image/jpeg', 0.7); // 70% quality
+        }
+
+        // 3. Update UI
+        function updateUI(data) {
+            // Show Top Result
+            topResultEl.style.display = 'block';
+            topResultEl.innerText = data.top_result;
+
+            // Highlight if custom match
+            if (data.top_result.includes("(CUSTOM MATCH)")) {
+                topResultEl.style.backgroundColor = "#00ffff"; // Cyan for custom
+            } else {
+                topResultEl.style.backgroundColor = "rgba(0, 255, 0, 0.9)"; // Green for standard
+            }
+
+            // Show List
+            if (data.predictions && data.predictions.length > 0) {
+                const list = data.predictions.map(p => `${p.name} (${p.score}%)`).join(' | ');
+                predictionsEl.innerText = list;
+            }
+        }
+
+        function simulateSearch() {
+            const item = topResultEl.innerText;
+            alert(`Searching for: ${item}\n\n(Redirecting to product page...)`);
+        }
+
+        // Initialize
+        startCamera();
     </script>
 </body>
 

@@ -4,3 +4,7 @@ uvicorn
 opencv-python
 jinja2
 python-multipart
+transformers
+torch
+Pillow
+httpx
